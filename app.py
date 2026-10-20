@@ -7,15 +7,17 @@ from datetime import datetime
 st.set_page_config(page_title="Classroom Finder", page_icon="🏫", layout="centered")
 st.title("🏫 Empty Classroom Finder")
 
-# Get the directory where app.py is located
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_FILE = os.path.join(SCRIPT_DIR, "2026-2027 Schedule - Fall 2026.csv")
-MANUAL_LAB_FILE = os.path.join(SCRIPT_DIR, "manual_lab_rooms.txt")
+# Cloud-safe file paths
+CSV_FILE = "2026-2027 Schedule - Fall 2026.csv"
+MANUAL_LAB_FILE = "manual_lab_rooms.txt"
 
 DAY_START = 8 * 60
 DAY_END = 21 * 60
 
-# --- Helper Functions ---
+def clean_room_name(r):
+    # Removes all spaces, hyphens, and makes uppercase so "E-009" matches "E009"
+    return re.sub(r'[\s\-]', '', str(r).upper())
+
 def to_min(t):
     t = (t or "").strip().replace("\u202f", " ")
     if not t or t.upper() in {"N/A", "OL", "ONLINE", ""}: return None
@@ -43,15 +45,18 @@ def merge_and_get_gaps(intervals):
     if cur < DAY_END: gaps.append((cur, DAY_END))
     return gaps
 
-# --- Data Loading ---
-# Notice: We REMOVED @st.cache_data so that if you edit the CSV or the text file, it updates immediately!
+# Removed @st.cache_data to ensure changes on GitHub apply instantly without caching issues
 def load_data():
     room_day = {}
     lab_rooms = set()
     
+    # 1. Load manual labs and clean their names
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
-            lab_rooms.update(line.strip() for line in f if line.strip())
+            for line in f:
+                clean_name = line.strip()
+                if clean_name:
+                    lab_rooms.add(clean_room_name(clean_name))
 
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
@@ -72,15 +77,18 @@ def load_data():
 
         for row in reader:
             if len(row) <= max(r_idx, d_idx, s_idx, e_idx): continue
-            room = row[r_idx].strip()
-            if not room or ' ' in room or room.upper().startswith("TBD"): continue
+            
+            room_raw = row[r_idx].strip()
+            room_clean = clean_room_name(room_raw)
+            
+            if not room_raw or ' ' in room_raw or room_raw.upper().startswith("TBD"): continue
             
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
 
-            # Auto-detect labs
+            # 2. Auto-detect labs and clean their names
             if 'L' in row[sec_idx].upper() or any(x in row[c_idx].upper() for x in ["LAB", "WORKSHOP", "STUDIO"]):
-                lab_rooms.add(room)
+                lab_rooms.add(room_clean)
 
             days = set()
             ds = row[d_idx].upper()
@@ -91,12 +99,14 @@ def load_data():
             if "F" in ds: days.add("Fri")
             
             for d in days:
-                room_day.setdefault(room, {}).setdefault(d, []).append((start, end))
+                room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end))
                 
     return room_day, lab_rooms
 
 room_day, lab_rooms = load_data()
-all_rooms = sorted([r for r in room_day.keys() if r not in lab_rooms])
+
+# Filter out rooms that are in lab_rooms (using the cleaned name comparison)
+all_rooms = sorted([r for r in room_day.keys() if clean_room_name(r) not in lab_rooms])
 
 # --- Streamlit UI ---
 if not room_day:
