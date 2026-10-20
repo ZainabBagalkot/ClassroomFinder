@@ -120,9 +120,6 @@ all_rooms = sorted(all_rooms)
 if not room_day:
     st.stop()
 
-# Debug display
-st.caption(f"🛠️ Debug: Loaded {len(all_rooms)} classrooms. Ignored {len(lab_rooms)} lab/locked rooms.")
-
 mode = st.radio("What would you like to search?", ["Time & Day", "Block & Time & Day"])
 
 selected_day = st.selectbox("Day", ["Mon", "Tue", "Wed", "Thu", "Fri"])
