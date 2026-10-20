@@ -7,7 +7,6 @@ from datetime import datetime
 st.set_page_config(page_title="Classroom Finder", page_icon="🏫", layout="centered")
 st.title("🏫 Empty Classroom Finder")
 
-# Cloud-safe file paths
 CSV_FILE = "2026-2027 Schedule - Fall 2026.csv"
 MANUAL_LAB_FILE = "manual_lab_rooms.txt"
 
@@ -15,7 +14,7 @@ DAY_START = 8 * 60
 DAY_END = 21 * 60
 
 def clean_room_name(r):
-    # Removes all spaces, hyphens, and makes uppercase so "E-009" matches "E009"
+    # Removes spaces and hyphens, makes uppercase. E-009 -> E009
     return re.sub(r'[\s\-]', '', str(r).upper())
 
 def to_min(t):
@@ -45,12 +44,11 @@ def merge_and_get_gaps(intervals):
     if cur < DAY_END: gaps.append((cur, DAY_END))
     return gaps
 
-# Removed @st.cache_data to ensure changes on GitHub apply instantly without caching issues
 def load_data():
     room_day = {}
     lab_rooms = set()
     
-    # 1. Load manual labs and clean their names
+    # 1. Load manual labs
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -86,7 +84,7 @@ def load_data():
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
 
-            # 2. Auto-detect labs and clean their names
+            # 2. Auto-detect labs and add to blacklist
             if 'L' in row[sec_idx].upper() or any(x in row[c_idx].upper() for x in ["LAB", "WORKSHOP", "STUDIO"]):
                 lab_rooms.add(room_clean)
 
@@ -98,6 +96,7 @@ def load_data():
             if "R" in ds: days.add("Thu")
             if "F" in ds: days.add("Fri")
             
+            # Store by original name for display
             for d in days:
                 room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end))
                 
@@ -105,8 +104,12 @@ def load_data():
 
 room_day, lab_rooms = load_data()
 
-# Filter out rooms that are in lab_rooms (using the cleaned name comparison)
-all_rooms = sorted([r for r in room_day.keys() if clean_room_name(r) not in lab_rooms])
+# 3. THE FIX: Completely remove any room from the list if its cleaned name is in the lab_rooms blacklist
+all_rooms = []
+for r in room_day.keys():
+    if clean_room_name(r) not in lab_rooms:
+        all_rooms.append(r)
+all_rooms = sorted(all_rooms)
 
 # --- Streamlit UI ---
 if not room_day:
