@@ -4,8 +4,8 @@ import os
 import re
 from datetime import datetime
 
-st.set_page_config(page_title="Classroom Finder", page_icon="🏫", layout="centered")
-st.title("🏫 Empty Classroom Finder")
+st.set_page_config(page_title="Classroom Finder", layout="centered")
+st.title("Classroom Finder")
 
 CSV_FILE = "2026-2027 Schedule - Fall 2026.csv"
 MANUAL_LAB_FILE = "manual_lab_rooms.txt"
