@@ -46,9 +46,14 @@ def merge_and_get_gaps(intervals):
 
 def load_data():
     room_day = {}
-    lab_rooms = set()
     
-    # 1. Load manual labs
+    # --- MANUAL BLACKLIST ---
+    # Any room added here will be permanently ignored.
+    lab_rooms = set()
+    lab_rooms.add(clean_room_name("E009")) 
+    lab_rooms.add(clean_room_name("E-009"))
+    
+    # Also read from the text file if it exists
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -58,7 +63,7 @@ def load_data():
 
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
-        return {}, set()
+        return {}, set(), set()
 
     with open(CSV_FILE, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -68,7 +73,7 @@ def load_data():
                 headers = row
                 break
                 
-        if not headers: return {}, set()
+        if not headers: return {}, set(), set()
 
         r_idx, d_idx, s_idx, e_idx = headers.index("Room #"), headers.index("Days"), headers.index("Time Start"), headers.index("Time End")
         c_idx, sec_idx = headers.index("Course Name"), headers.index("Sect#")
@@ -84,7 +89,7 @@ def load_data():
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
 
-            # 2. Auto-detect labs and add to blacklist
+            # Auto-detect labs from CSV
             if 'L' in row[sec_idx].upper() or any(x in row[c_idx].upper() for x in ["LAB", "WORKSHOP", "STUDIO"]):
                 lab_rooms.add(room_clean)
 
@@ -96,15 +101,15 @@ def load_data():
             if "R" in ds: days.add("Thu")
             if "F" in ds: days.add("Fri")
             
-            # Store by original name for display
             for d in days:
                 room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end))
                 
-    return room_day, lab_rooms
+    return room_day, lab_rooms, lab_rooms
 
-room_day, lab_rooms = load_data()
+# Force Streamlit to re-read the file on every single run
+room_day, _, lab_rooms = load_data()
 
-# 3. THE FIX: Completely remove any room from the list if its cleaned name is in the lab_rooms blacklist
+# Build the final list of allowed rooms
 all_rooms = []
 for r in room_day.keys():
     if clean_room_name(r) not in lab_rooms:
@@ -114,6 +119,9 @@ all_rooms = sorted(all_rooms)
 # --- Streamlit UI ---
 if not room_day:
     st.stop()
+
+# Debug display
+st.caption(f"🛠️ Debug: Loaded {len(all_rooms)} classrooms. Ignored {len(lab_rooms)} lab/locked rooms.")
 
 mode = st.radio("What would you like to search?", ["Time & Day", "Block & Time & Day"])
 
