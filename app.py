@@ -8,7 +8,7 @@ st.set_page_config(page_title="Classroom Finder", page_icon="🏫", layout="cent
 st.title("🏫 Empty Classroom Finder")
 
 CSV_FILE = "2026-2027 Schedule - Fall 2026.csv"
-MANUAL_LAB_FILE = "manual_lab_rooms.txt"
+MANUAL_LAB_FILE = "manual_lab_rooms"
 
 DAY_START = 8 * 60
 DAY_END = 21 * 60
