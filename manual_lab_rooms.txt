@@ -1,0 +1,83 @@
+E009
+MECHWS
+E212
+H004
+E218
+E219
+E217
+B003
+H001
+H002
+E318
+E114
+B004
+
+D018 lab
+D002 office
+D003 office
+D004 office
+D005 office
+D006 office
+D015 lab
+
+D103 office
+D104 office
+D105 office
+D106 office
+D110 lab
+D112 lab
+
+D203 office
+D204 office
+D205 office
+D206 office
+D210 lab
+D214 lab
+D212 lab
+
+D304 office
+D303 office
+D306 office
+D316 lab
+D310 office
+D311 office
+D312 office
+D313 lab 
+
+C103 office
+C104 office
+C105 office
+
+C306 office
+C307 office
+C308 office
+C305 office
+C304 office
+C303 office
+
+C203 office
+C204 office
+C205 office
+C206 office
+C207 office
+C208 office 
+
+B106 lab
+B103 office
+B104 office
+B105 office
+B108 lab
+B107 lab
+
+B209 office
+B203 office
+B204 office
+B205 office
+B206 office
+B207 office
+B216 office
+B217 office
+B215 office
+B214 office
+B213 office
+B212 office
