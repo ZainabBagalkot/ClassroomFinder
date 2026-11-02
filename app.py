@@ -4,8 +4,8 @@ import os
 import re
 from datetime import datetime
 
-st.set_page_config(page_title="Classroom Finder", layout="centered")
-st.title("Classroom Finder")
+st.set_page_config(page_title="Classroom Finder", page_icon="🏫", layout="centered")
+st.title("🏫 Empty Classroom Finder")
 
 CSV_FILE = "2026-2027 Schedule - Fall 2026.csv"
 MANUAL_LAB_FILE = "manual_lab_rooms.txt"
@@ -14,7 +14,6 @@ DAY_START = 8 * 60
 DAY_END = 21 * 60
 
 def clean_room_name(r):
-    # Removes spaces and hyphens, makes uppercase. E-009 -> E009
     return re.sub(r'[\s\-]', '', str(r).upper())
 
 def to_min(t):
@@ -31,29 +30,12 @@ def fmt(m):
     h = h % 12 or 12
     return f"{h}:{mi:02d}{ampm}"
 
-def merge_and_get_gaps(intervals):
-    merged = []
-    for s, e in sorted(intervals):
-        if not merged or s > merged[-1][1]: merged.append([s, e])
-        else: merged[-1][1] = max(merged[-1][1], e)
-    gaps = []
-    cur = DAY_START
-    for s, e in merged:
-        if s > cur: gaps.append((cur, s))
-        cur = max(cur, e)
-    if cur < DAY_END: gaps.append((cur, DAY_END))
-    return gaps
-
 def load_data():
     room_day = {}
     
-    # --- MANUAL BLACKLIST ---
-    # Any room added here will be permanently ignored.
     lab_rooms = set()
-    lab_rooms.add(clean_room_name("E009")) 
-    lab_rooms.add(clean_room_name("E-009"))
+    lab_rooms.add(clean_room_name("E009"))
     
-    # Also read from the text file if it exists
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -63,7 +45,7 @@ def load_data():
 
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
-        return {}, set(), set()
+        return {}, set()
 
     with open(CSV_FILE, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -73,7 +55,7 @@ def load_data():
                 headers = row
                 break
                 
-        if not headers: return {}, set(), set()
+        if not headers: return {}, set()
 
         r_idx, d_idx, s_idx, e_idx = headers.index("Room #"), headers.index("Days"), headers.index("Time Start"), headers.index("Time End")
         c_idx, sec_idx = headers.index("Course Name"), headers.index("Sect#")
@@ -89,7 +71,6 @@ def load_data():
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
 
-            # Auto-detect labs from CSV
             if 'L' in row[sec_idx].upper() or any(x in row[c_idx].upper() for x in ["LAB", "WORKSHOP", "STUDIO"]):
                 lab_rooms.add(room_clean)
 
@@ -101,24 +82,26 @@ def load_data():
             if "R" in ds: days.add("Thu")
             if "F" in ds: days.add("Fri")
             
+            course_name = row[c_idx].strip()
+            
+            # Store start, end, and course name
             for d in days:
-                room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end))
+                room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end, course_name))
                 
-    return room_day, lab_rooms, lab_rooms
+    return room_day, lab_rooms
 
-# Force Streamlit to re-read the file on every single run
-room_day, _, lab_rooms = load_data()
+room_day, lab_rooms = load_data()
 
-# Build the final list of allowed rooms
 all_rooms = []
 for r in room_day.keys():
     if clean_room_name(r) not in lab_rooms:
         all_rooms.append(r)
 all_rooms = sorted(all_rooms)
 
-# --- Streamlit UI ---
 if not room_day:
     st.stop()
+
+st.caption(f"🛠️ Debug: Loaded {len(all_rooms)} classrooms. Ignored {len(lab_rooms)} lab/locked rooms.")
 
 mode = st.radio("What would you like to search?", ["Time & Day", "Block & Time & Day"])
 
@@ -150,14 +133,46 @@ if st.button("🔍 Find Free Rooms", use_container_width=True):
         for room in all_rooms:
             if mode == "Block & Time & Day" and not room.startswith(block): continue
             
-            gaps = merge_and_get_gaps(room_day[room].get(selected_day, []))
-            for gs, ge in gaps:
+            # Sort intervals by start time
+            intervals = sorted(room_day[room].get(selected_day, []))
+            
+            # Merge intervals (keeping track of course name for the merged block)
+            merged = []
+            for s, e, c in intervals:
+                if not merged or s > merged[-1][1]:
+                    merged.append([s, e, c])
+                else:
+                    # If overlapping, extend the end time
+                    merged[-1][1] = max(merged[-1][1], e)
+                    
+            # Calculate gaps and find the next class
+            gaps = []
+            cur = DAY_START
+            for i, (s, e, c) in enumerate(merged):
+                if s > cur:
+                    # The next class is the one starting at 's'
+                    next_class = c
+                    gaps.append((cur, s, next_class))
+                cur = max(cur, e)
+                
+            if cur < DAY_END:
+                # Free until the end of the day
+                gaps.append((cur, DAY_END, "No more classes"))
+
+            # Check if the requested time fits into any gap
+            for gs, ge, next_class in gaps:
                 if gs <= req_start and req_end <= ge:
-                    results.append({"Room": room, "Free From": fmt(gs), "Free Until": fmt(ge)})
+                    results.append({
+                        "Room": room, 
+                        "Free From": fmt(gs), 
+                        "Free Until": fmt(ge),
+                        "Next Class": next_class
+                    })
                     break
 
         if results:
             st.success(f"Found {len(results)} free rooms on {selected_day}!")
+            # Reorder columns for display
             st.dataframe(results, use_container_width=True, hide_index=True)
         else:
             st.warning("No classrooms are completely free during this time.")
