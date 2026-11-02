@@ -30,21 +30,30 @@ def fmt(m):
     h = h % 12 or 12
     return f"{h}:{mi:02d}{ampm}"
 
+@st.cache_data
 def load_data():
     room_day = {}
-    lab_rooms = set()
+    # Dictionary to hold room statuses (e.g., {"D002": "Office", "D015": "Lab"})
+    room_statuses = {}
     
-    # ONLY load from the manual text file now
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
             for line in f:
-                clean_name = line.strip()
-                if clean_name:
-                    lab_rooms.add(clean_room_name(clean_name))
+                line = line.strip()
+                if not line: continue
+                
+                # Split the line by space. The first part is the room, the rest is the status.
+                parts = line.split(maxsplit=1)
+                room_raw = parts[0]
+                room_clean = clean_room_name(room_raw)
+                
+                # Save the status (e.g., "office" or "lab"). If no status, default to "Locked/Lab"
+                status = parts[1].capitalize() if len(parts) > 1 else "Locked / Lab"
+                room_statuses[room_clean] = status
 
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
-        return {}, set()
+        return {}, {}
 
     with open(CSV_FILE, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -54,7 +63,7 @@ def load_data():
                 headers = row
                 break
                 
-        if not headers: return {}, set()
+        if not headers: return {}, {}
 
         r_idx, d_idx, s_idx, e_idx = headers.index("Room #"), headers.index("Days"), headers.index("Time Start"), headers.index("Time End")
         c_idx = headers.index("Course Name")
@@ -70,9 +79,6 @@ def load_data():
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
 
-            # Automatic lab filtering removed! 
-            # It now relies entirely on your manual text file.
-
             days = set()
             ds = row[d_idx].upper()
             if "M" in ds: days.add("Mon")
@@ -86,81 +92,106 @@ def load_data():
             for d in days:
                 room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end, course_name))
                 
-    return room_day, lab_rooms
+    return room_day, room_statuses
 
-room_day, lab_rooms = load_data()
+room_day, room_statuses = load_data()
 
+# Build the list of allowed classrooms
 all_rooms = []
 for r in room_day.keys():
-    if clean_room_name(r) not in lab_rooms:
+    if clean_room_name(r) not in room_statuses:
         all_rooms.append(r)
 all_rooms = sorted(all_rooms)
 
 if not room_day:
     st.stop()
 
-mode = st.radio("What would you like to search?", ["Time & Day", "Block & Time & Day"])
+# --- APP NAVIGATION ---
+tab1, tab2 = st.tabs(["🔍 Find Free Rooms", "🔎 Lookup Room"])
 
-selected_day = st.selectbox("Day", ["Mon", "Tue", "Wed", "Thu", "Fri"])
+with tab1:
+    mode = st.radio("What would you like to search?", ["Time & Day", "Block & Time & Day"])
+    selected_day = st.selectbox("Day", ["Mon", "Tue", "Wed", "Thu", "Fri"])
 
-block = None
-if mode == "Block & Time & Day":
-    block = st.selectbox("Block", sorted(list(set([r[0] for r in all_rooms]))))
+    block = None
+    if mode == "Block & Time & Day":
+        block = st.selectbox("Block", sorted(list(set([r[0] for r in all_rooms]))))
 
-col1, col2 = st.columns(2)
-with col1:
-    start_time = st.text_input("Start Time (e.g., 3:50pm or 4pm)", "3:50pm")
-with col2:
-    end_time = st.text_input("End Time (e.g., 5:00pm)", "5:00pm")
+    col1, col2 = st.columns(2)
+    with col1:
+        start_time = st.text_input("Start Time (e.g., 3:50pm or 4pm)", "3:50pm")
+    with col2:
+        end_time = st.text_input("End Time (e.g., 5:00pm)", "5:00pm")
 
-def parse_t(t):
-    t = t.lower().replace(" ", "")
-    if re.match(r"^\d{1,2}(am|pm)$", t): t = t[:-2] + ":00" + t[-2:]
-    try: return datetime.strptime(t, "%I:%M%p").hour * 60 + datetime.strptime(t, "%I:%M%p").minute
-    except: return None
+    def parse_t(t):
+        t = t.lower().replace(" ", "")
+        if re.match(r"^\d{1,2}(am|pm)$", t): t = t[:-2] + ":00" + t[-2:]
+        try: return datetime.strptime(t, "%I:%M%p").hour * 60 + datetime.strptime(t, "%I:%M%p").minute
+        except: return None
 
-req_start, req_end = parse_t(start_time), parse_t(end_time)
+    req_start, req_end = parse_t(start_time), parse_t(end_time)
 
-if st.button("🔍 Find Free Rooms", use_container_width=True):
-    if req_start is None or req_end is None or req_start >= req_end:
-        st.error("Invalid times entered. Please use a format like '4pm' or '4:00pm'.")
-    else:
-        results = []
-        for room in all_rooms:
-            if mode == "Block & Time & Day" and not room.startswith(block): continue
-            
-            intervals = sorted(room_day[room].get(selected_day, []))
-            
-            merged = []
-            for s, e, c in intervals:
-                if not merged or s > merged[-1][1]:
-                    merged.append([s, e, c])
-                else:
-                    merged[-1][1] = max(merged[-1][1], e)
-                    
-            gaps = []
-            cur = DAY_START
-            for i, (s, e, c) in enumerate(merged):
-                if s > cur:
-                    next_class = c
-                    gaps.append((cur, s, next_class))
-                cur = max(cur, e)
-                
-            if cur < DAY_END:
-                gaps.append((cur, DAY_END, "No more classes"))
-
-            for gs, ge, next_class in gaps:
-                if gs <= req_start and req_end <= ge:
-                    results.append({
-                        "Room": room, 
-                        "Free From": fmt(gs), 
-                        "Free Until": fmt(ge),
-                        "Next Class": next_class
-                    })
-                    break
-
-        if results:
-            st.success(f"Found {len(results)} free rooms on {selected_day}!")
-            st.dataframe(results, use_container_width=True, hide_index=True)
+    if st.button("🔍 Find Free Rooms", use_container_width=True):
+        if req_start is None or req_end is None or req_start >= req_end:
+            st.error("Invalid times entered. Please use a format like '4pm' or '4:00pm'.")
         else:
-            st.warning("No classrooms are completely free during this time.")
+            results = []
+            for room in all_rooms:
+                if mode == "Block & Time & Day" and not room.startswith(block): continue
+                
+                intervals = sorted(room_day[room].get(selected_day, []))
+                
+                merged = []
+                for s, e, c in intervals:
+                    if not merged or s > merged[-1][1]:
+                        merged.append([s, e, c])
+                    else:
+                        merged[-1][1] = max(merged[-1][1], e)
+                        
+                gaps = []
+                cur = DAY_START
+                for i, (s, e, c) in enumerate(merged):
+                    if s > cur:
+                        gaps.append((cur, s, c))
+                    cur = max(cur, e)
+                    
+                if cur < DAY_END:
+                    gaps.append((cur, DAY_END, "No more classes"))
+
+                for gs, ge, next_class in gaps:
+                    if gs <= req_start and req_end <= ge:
+                        results.append({
+                            "Room": room, 
+                            "Free From": fmt(gs), 
+                            "Free Until": fmt(ge),
+                            "Next Class": next_class
+                        })
+                        break
+
+            if results:
+                st.success(f"Found {len(results)} free rooms on {selected_day}!")
+                st.dataframe(results, use_container_width=True, hide_index=True)
+            else:
+                st.warning("No classrooms are completely free during this time.")
+
+with tab2:
+    st.subheader("Room Lookup")
+    search_room = st.text_input("Enter a room number (e.g., D114 or D002):").strip()
+    
+    if search_room:
+        clean_search = clean_room_name(search_room)
+        
+        # 1. Check if the room is in the manual list (Office, Lab, etc.)
+        if clean_search in room_statuses:
+            status = room_statuses[clean_search]
+            st.info(f"**{search_room.upper()}** - {status}")
+            
+        # 2. Check if the room is a known classroom from the CSV
+        elif any(clean_room_name(r) == clean_search for r in room_day.keys()):
+            # Find the actual room name formatting used in the CSV
+            actual_name = next(r for r in room_day.keys() if clean_room_name(r) == clean_search)
+            st.success(f"**{actual_name}** - Classroom")
+            
+        # 3. Not found at all
+        else:
+            st.error("Room not found in the schedule or manual list.")
