@@ -30,11 +30,10 @@ def fmt(m):
     h = h % 12 or 12
     return f"{h}:{mi:02d}{ampm}"
 
-@st.cache_data
 def load_data():
     room_day = {}
-    # Dictionary to hold room statuses (e.g., {"D002": "Office", "D015": "Lab"})
     room_statuses = {}
+    blocked_rooms = set()
     
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
@@ -42,18 +41,22 @@ def load_data():
                 line = line.strip()
                 if not line: continue
                 
-                # Split the line by space. The first part is the room, the rest is the status.
+                # Split line into room and status based on the first space
                 parts = line.split(maxsplit=1)
                 room_raw = parts[0]
                 room_clean = clean_room_name(room_raw)
                 
-                # Save the status (e.g., "office" or "lab"). If no status, default to "Locked/Lab"
-                status = parts[1].capitalize() if len(parts) > 1 else "Locked / Lab"
-                room_statuses[room_clean] = status
+                status = parts[1].strip() if len(parts) > 1 else "Locked / Lab"
+                room_statuses[room_clean] = status.capitalize()
+                
+                # Smart block: If status has lab/office/locked, block it. If it says classroom, let it pass.
+                status_lower = status.lower()
+                if any(word in status_lower for word in ["lab", "office", "locked", "not a classroom"]):
+                    blocked_rooms.add(room_clean)
 
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
-        return {}, {}
+        return {}, {}, set()
 
     with open(CSV_FILE, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -63,7 +66,7 @@ def load_data():
                 headers = row
                 break
                 
-        if not headers: return {}, {}
+        if not headers: return {}, {}, set()
 
         r_idx, d_idx, s_idx, e_idx = headers.index("Room #"), headers.index("Days"), headers.index("Time Start"), headers.index("Time End")
         c_idx = headers.index("Course Name")
@@ -92,14 +95,14 @@ def load_data():
             for d in days:
                 room_day.setdefault(room_raw, {}).setdefault(d, []).append((start, end, course_name))
                 
-    return room_day, room_statuses
+    return room_day, room_statuses, blocked_rooms
 
-room_day, room_statuses = load_data()
+room_day, room_statuses, blocked_rooms = load_data()
 
-# Build the list of allowed classrooms
+# Filter out blocked rooms
 all_rooms = []
 for r in room_day.keys():
-    if clean_room_name(r) not in room_statuses:
+    if clean_room_name(r) not in blocked_rooms:
         all_rooms.append(r)
 all_rooms = sorted(all_rooms)
 
@@ -181,14 +184,13 @@ with tab2:
     if search_room:
         clean_search = clean_room_name(search_room)
         
-        # 1. Check if the room is in the manual list (Office, Lab, etc.)
+        # 1. Check if the room is in the manual list
         if clean_search in room_statuses:
             status = room_statuses[clean_search]
             st.info(f"**{search_room.upper()}** - {status}")
             
         # 2. Check if the room is a known classroom from the CSV
         elif any(clean_room_name(r) == clean_search for r in room_day.keys()):
-            # Find the actual room name formatting used in the CSV
             actual_name = next(r for r in room_day.keys() if clean_room_name(r) == clean_search)
             st.success(f"**{actual_name}** - Classroom")
             
