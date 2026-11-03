@@ -35,6 +35,7 @@ def load_data():
     room_statuses = {}
     blocked_rooms = set()
     
+    # 1. Load Manual Blocked Rooms
     if os.path.exists(MANUAL_LAB_FILE):
         with open(MANUAL_LAB_FILE, 'r', encoding='utf-8') as f:
             for line in f:
@@ -48,7 +49,6 @@ def load_data():
                 status = parts[1].strip() if len(parts) > 1 else "Locked / Lab"
                 room_statuses[room_clean] = status.capitalize()
                 
-                # Only block if it's in the manual file
                 status_lower = status.lower()
                 if any(word in status_lower for word in ["lab", "office", "locked", "does not exist", "not a classroom"]):
                     blocked_rooms.add(room_clean)
@@ -56,6 +56,12 @@ def load_data():
     if not os.path.exists(CSV_FILE):
         st.error(f"Error: Could not find the CSV file at {CSV_FILE}")
         return {}, {}, set()
+
+    # Valid starting letters for rooms (Added J for J Block)
+    VALID_ROOM_PREFIXES = ("B", "C", "D", "E", "H", "T", "G", "J", "MECHWS")
+    
+    # Hardcoded phantom rooms to ignore (like E118)
+    blocked_rooms.add(clean_room_name("E118"))
 
     with open(CSV_FILE, newline="", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
@@ -76,7 +82,15 @@ def load_data():
             room_raw = row[r_idx].strip()
             room_clean = clean_room_name(room_raw)
             
-            if not room_raw or ' ' in room_raw or room_raw.upper().startswith("TBD"): continue
+            # Ignore text like Online, TBD, N/A
+            if not room_raw or ' ' in room_raw:
+                continue
+            if any(bad_word in room_raw.upper() for bad_word in ["TBD", "ONLINE", "N/A", "OL"]):
+                continue
+
+            # Ignore rooms that don't start with a valid prefix
+            if not room_raw.upper().startswith(VALID_ROOM_PREFIXES):
+                continue
             
             start, end = to_min(row[s_idx]), to_min(row[e_idx])
             if start is None or end is None: continue
@@ -98,7 +112,7 @@ def load_data():
 
 room_day, room_statuses, blocked_rooms = load_data()
 
-# Filter out only what is in the manual block list
+# Filter out blocked rooms
 all_rooms = []
 for r in room_day.keys():
     if clean_room_name(r) not in blocked_rooms:
@@ -183,16 +197,13 @@ with tab2:
     if search_room:
         clean_search = clean_room_name(search_room)
         
-        # 1. Check if the room is in the manual list
         if clean_search in room_statuses:
             status = room_statuses[clean_search]
             st.info(f"**{search_room.upper()}** - {status}")
             
-        # 2. Check if the room is a known classroom from the CSV
         elif clean_search in room_day:
             actual_name = next(r for r in room_day.keys() if clean_room_name(r) == clean_search)
             st.success(f"**{actual_name}** - Classroom")
             
-        # 3. Not found at all
         else:
             st.error("Room not found in the schedule or manual list.")
