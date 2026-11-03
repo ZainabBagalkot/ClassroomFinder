@@ -41,7 +41,6 @@ def load_data():
                 line = line.strip()
                 if not line: continue
                 
-                # Split line into room and status based on the first space
                 parts = line.split(maxsplit=1)
                 room_raw = parts[0]
                 room_clean = clean_room_name(room_raw)
@@ -49,9 +48,9 @@ def load_data():
                 status = parts[1].strip() if len(parts) > 1 else "Locked / Lab"
                 room_statuses[room_clean] = status.capitalize()
                 
-                # Smart block: If status has lab/office/locked, block it. If it says classroom, let it pass.
+                # Only block if it's in the manual file
                 status_lower = status.lower()
-                if any(word in status_lower for word in ["lab", "office", "locked", "not a classroom"]):
+                if any(word in status_lower for word in ["lab", "office", "locked", "does not exist", "not a classroom"]):
                     blocked_rooms.add(room_clean)
 
     if not os.path.exists(CSV_FILE):
@@ -99,7 +98,7 @@ def load_data():
 
 room_day, room_statuses, blocked_rooms = load_data()
 
-# Filter out blocked rooms
+# Filter out only what is in the manual block list
 all_rooms = []
 for r in room_day.keys():
     if clean_room_name(r) not in blocked_rooms:
@@ -190,7 +189,7 @@ with tab2:
             st.info(f"**{search_room.upper()}** - {status}")
             
         # 2. Check if the room is a known classroom from the CSV
-        elif any(clean_room_name(r) == clean_search for r in room_day.keys()):
+        elif clean_search in room_day:
             actual_name = next(r for r in room_day.keys() if clean_room_name(r) == clean_search)
             st.success(f"**{actual_name}** - Classroom")
             
