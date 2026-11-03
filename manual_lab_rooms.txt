@@ -20,6 +20,7 @@ E110 lab
 E106 office
 E105 office 
 E104 office
+E118 doesn’t exist 
 
 D018 lab
 D002 office
